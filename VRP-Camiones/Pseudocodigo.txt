@@ -1,0 +1,66 @@
+// Parámetros generales
+CAPACIDAD_MAX = 15           // kg
+VEL_MED = 60                 // km/h
+T_DESPACHO = 10              // min por cliente
+T_RECARGA  = 20              // min en depósito
+T_JORNADA  = 7 * 60          // min efectivos (7 horas)
+
+// --- 1. Carga de datos ---
+clientes ← leer clientes desde Excel
+para cada cliente:
+    cliente.asignado ← falso
+
+// Lista de camiones
+camiones ← [Camión1, Camión2, Camión3, Camión4]
+
+// --- 2. Asignación de clientes a camiones ---
+para cada camión en camiones:
+    camión.carga ← 0
+    camión.tiempo ← 0
+    camión.ruta ← [DEPÓSITO (0,0)]
+
+// Mientras queden clientes sin asignar
+    mientras exista cliente no asignado:
+        // Filtrar sólo los que caben en este camión
+        candidatos ← {c ∈ clientes | ¬c.asignado y c.peso + camión.carga ≤ CAPACIDAD_MAX}
+        si candidatos está vacío:
+            salir del bucle
+        
+        // Para cada candidato, calcular “coste” = tiempo de ir + despacho + tiempo de volver al depósito
+        para cada c en candidatos:
+            d_ida  ← distancia(camión.última_ubicación, c.ubicación)
+            t_ida  ← (d_ida / VEL_MED) * 60         // convertir horas→minutos
+            d_vuelta ← distancia(c.ubicación, DEPÓSITO)
+            t_vuelta ← (d_vuelta / VEL_MED) * 60
+            coste[c] ← t_ida + T_DESPACHO + t_vuelta
+        
+        // Elegir el cliente de menor coste
+        siguiente ← argmin_c(coste[c])
+        
+        // Comprobar si cabe en el tiempo disponible
+        if camión.tiempo + coste[siguiente] ≤ T_JORNADA:
+            // Asignar cliente
+            añadir siguiente a camión.ruta
+            camión.carga  += siguiente.peso
+            camión.tiempo += (distancia(camión.última_ubicación, siguiente.ubicación)/VEL_MED*60)
+                               + T_DESPACHO
+            siguiente.asignado ← verdadero
+            camión.última_ubicación ← siguiente.ubicación
+        else:
+            salir del bucle
+    
+    // Al terminar de asignar, regresar al depósito
+    t_regreso ← (distancia(camión.última_ubicación, DEPÓSITO)/VEL_MED)*60
+    camión.tiempo += t_regreso
+    añadir DEPÓSITO al final de camión.ruta
+
+// --- 3. Salida de resultados ---
+para cada camión:
+    imprimir “Camión X: carga usada = ” camión.carga
+    imprimir “Tiempo total (min) = ” camión.tiempo
+    imprimir “Ruta: ” camión.ruta
+
+// Finalmente:
+// • Revisar si quedaron clientes sin asignar.
+// • Visualizar rutas en un gráfico.
+// • Analizar desempeño y proponer mejoras.

@@ -1,66 +1,116 @@
 // Parámetros generales
-CAPACIDAD_MAX = 15           // kg
-VEL_MED = 60                 // km/h
-T_DESPACHO = 10              // min por cliente
-T_RECARGA  = 20              // min en depósito
-T_JORNADA  = 7 * 60          // min efectivos (7 horas)
+CAPACIDAD_MAX ← 15        // kg
+VEL_MED       ← 60        // km/h
+T_DESPACHO    ← 10        // min por cliente
+T_RECARGA     ← 20        // min en depósito
+T_JORNADA     ← 7 * 60    // min efectivos (7 h)
 
 // --- 1. Carga de datos ---
-clientes ← leer clientes desde Excel
-para cada cliente:
-    cliente.asignado ← falso
+clientes ← leer Excel de clientes  
+para cada cliente en clientes:
+    cliente.asignado     ← falso
+    cliente.día_entrega  ← null
+    cliente.llegada_min  ← null
+    cliente.salida_min   ← null
 
-// Lista de camiones
-camiones ← [Camión1, Camión2, Camión3, Camión4]
+día_actual ← 1
 
-// --- 2. Asignación de clientes a camiones ---
-para cada camión en camiones:
-    camión.carga ← 0
-    camión.tiempo ← 0
-    camión.ruta ← [DEPÓSITO (0,0)]
-
-// Mientras queden clientes sin asignar
-    mientras exista cliente no asignado:
-        // Filtrar sólo los que caben en este camión
-        candidatos ← {c ∈ clientes | ¬c.asignado y c.peso + camión.carga ≤ CAPACIDAD_MAX}
-        si candidatos está vacío:
-            salir del bucle
-        
-        // Para cada candidato, calcular “coste” = tiempo de ir + despacho + tiempo de volver al depósito
-        para cada c en candidatos:
-            d_ida  ← distancia(camión.última_ubicación, c.ubicación)
-            t_ida  ← (d_ida / VEL_MED) * 60         // convertir horas→minutos
-            d_vuelta ← distancia(c.ubicación, DEPÓSITO)
-            t_vuelta ← (d_vuelta / VEL_MED) * 60
-            coste[c] ← t_ida + T_DESPACHO + t_vuelta
-        
-        // Elegir el cliente de menor coste
-        siguiente ← argmin_c(coste[c])
-        
-        // Comprobar si cabe en el tiempo disponible
-        if camión.tiempo + coste[siguiente] ≤ T_JORNADA:
-            // Asignar cliente
-            añadir siguiente a camión.ruta
-            camión.carga  += siguiente.peso
-            camión.tiempo += (distancia(camión.última_ubicación, siguiente.ubicación)/VEL_MED*60)
-                               + T_DESPACHO
-            siguiente.asignado ← verdadero
-            camión.última_ubicación ← siguiente.ubicación
-        else:
-            salir del bucle
+// --- 2. Ciclo diario ---
+mientras exista cliente con asignado = falso:
+    imprimir "=== Día " + día_actual + " ==="
     
-    // Al terminar de asignar, regresar al depósito
-    t_regreso ← (distancia(camión.última_ubicación, DEPÓSITO)/VEL_MED)*60
-    camión.tiempo += t_regreso
-    añadir DEPÓSITO al final de camión.ruta
+    // Inicializar flota
+    camiones ← lista de 4 camiones
+    para cada camión en camiones:
+        camión.carga      ← 0
+        camión.tiempo     ← 0       // minutos desde inicio de jornada
+        camión.distancia  ← 0       // km
+        camión.ruta       ← [DEPÓSITO]  
+        camión.ubicación  ← DEPÓSITO (ID=0)
+
+    // Asignar rutas por camión
+    para cada camión en camiones:
+        repetir:
+            // Filtrar candidatos por carga
+            candidatos ← {c ∈ clientes | ¬c.asignado y c.peso + camión.carga ≤ CAPACIDAD_MAX}
+            si candidatos está vacío:
+                salir del repetir
+            
+            // Evaluar coste para cada candidato
+            mejor ← null
+            para cada c en candidatos:
+                d_ida  ← distancia(camión.ubicación, c.ubicación)
+                t_ida  ← (d_ida / VEL_MED) * 60
+                d_ret  ← distancia(c.ubicación, DEPÓSITO)
+                t_ret  ← (d_ret / VEL_MED) * 60
+                coste  ← t_ida + T_DESPACHO + t_ret
+                si camión.tiempo + coste > T_JORNADA:
+                    continuar  // no cabe en jornada
+                si mejor = null o coste < mejor.coste:
+                    mejor ← (cliente=c, coste=coste, t_ida=t_ida, d_ida=d_ida)
+            
+            si mejor = null:
+                salir del repetir
+            
+            // Atender al cliente seleccionado
+            c ← mejor.cliente
+            // registrar llegada y salida
+            llegada ← camión.tiempo + mejor.t_ida
+            salida  ← llegada + T_DESPACHO
+            c.llegada_min ← llegada
+            c.salida_min  ← salida
+            c.día_entrega ← día_actual
+            c.asignado    ← verdadero
+            
+            // actualizar estado del camión
+            camión.ruta.append(c.ID)
+            camión.carga    ← camión.carga + c.peso
+            camión.tiempo   ← salida
+            camión.distancia← camión.distancia + mejor.d_ida
+            camión.ubicación← c.ubicación
+            
+            // recarga intermedia si no cabe el siguiente paquete
+            pesos_restantes ← [x.peso | x ∈ clientes si ¬x.asignado]
+            si pesos_restantes no vacío y camión.carga + mínimo(pesos_restantes) > CAPACIDAD_MAX:
+                // volver al depósito y recargar
+                d_vuelta ← distancia(camión.ubicación, DEPÓSITO)
+                t_vuelta ← (d_vuelta / VEL_MED) * 60
+                camión.tiempo    ← camión.tiempo + t_vuelta + T_RECARGA
+                camión.distancia ← camión.distancia + d_vuelta
+                camión.ruta.append(DEPÓSITO)
+                camión.carga     ← 0
+                camión.ubicación← DEPÓSITO
+            
+        hasta que no queden candidatos o no quepa más
+        
+        // Cerrar ruta al depósito final del día
+        si camión.ubicación ≠ DEPÓSITO:
+            d_fin    ← distancia(camión.ubicación, DEPÓSITO)
+            t_fin    ← (d_fin / VEL_MED) * 60
+            camión.tiempo    ← camión.tiempo + t_fin
+            camión.distancia ← camión.distancia + d_fin
+            camión.ruta.append(DEPÓSITO)
+
+        // Registrar métricas del camión
+        registrar(camión.ID, día_actual, camión.distancia, camión.tiempo, camión.ruta)
+
+    día_actual ← día_actual + 1
 
 // --- 3. Salida de resultados ---
-para cada camión:
-    imprimir “Camión X: carga usada = ” camión.carga
-    imprimir “Tiempo total (min) = ” camión.tiempo
-    imprimir “Ruta: ” camión.ruta
+// 3.1 Entregas
+imprimir tabla de clientes con columnas:
+    [día_entrega, cliente.ID, llegada_min, salida_min, dist_tramo_km]
 
-// Finalmente:
-// • Revisar si quedaron clientes sin asignar.
-// • Visualizar rutas en un gráfico.
-// • Analizar desempeño y proponer mejoras.
+// 3.2 Métricas
+imprimir tabla de métricas con columnas:
+    [día, camión, distancia_km, tiempo_min]
+
+// 3.3 Visualización
+– Graficar en X–Y cada ruta de cada camión
+– Marcar depósito y puntos de entrega
+
+// 3.4 Reporte
+– Exportar todo a un PDF con secciones:
+    • “Entregas”
+    • “Métricas”
+    • “Rutas”
